@@ -56,13 +56,15 @@ class GiteaClient(ServiceClient):
 
     def _api_url(self, path, **context):
         """ Build the full url to the API endpoint """
-        # TODO add token support
         if 'basic' in self.auth:
             (username, password) = self.auth['basic']
             baseurl = 'https://{user}:{secret}@{host}/api/v1'.format(
                 host=self.host,
                 user=username,
                 secret=password)
+        if 'token' in self.auth:
+            baseurl = 'https://{host}/api/v1'.format(
+                host=self.host)
         return baseurl + path.format(**context)
 
     # TODO Modify these for gitea support
@@ -84,15 +86,14 @@ class GiteaClient(ServiceClient):
             username=username, repo=repo)
         return self._getter(url)
 
-    def get_directly_assigned_issues(self, username):
+    def get_directly_assigned_issues(self):
         """ Returns all issues assigned to authenticated user.
 
         This will return all issues assigned to the authenticated user
         regardless of whether the user owns the repositories in which the
         issues exist.
         """
-        url = self._api_url('/users/{username}/issues',
-                            username=username)
+        url = self._api_url('/repos/issues/search?type=assigned')
         return self._getter(url)
 
     # TODO close to gitea format: /comments/{id}
@@ -388,25 +389,18 @@ class GiteaService(IssueService):
 
     def get_directly_assigned_issues(self, username):
         issues = {}
-        for issue in self.client.get_directly_assigned_issues(self.username):
+        for issue in self.client.get_directly_assigned_issues():
             repos = self.get_repository_from_issue(issue)
             issues[issue['url']] = (repos, issue)
         return issues
 
     @classmethod
     def get_repository_from_issue(cls, issue):
-        if 'repo' in issue:
-            return issue['repo']
-        if 'repos_url' in issue:
-            url = issue['repos_url']
-        elif 'repository_url' in issue:
-            url = issue['repository_url']
-        else:
-            raise ValueError('Issue has no repository url' + str(issue))
-        tag = re.match('.*/([^/]*/[^/]*)$', url)
-        if tag is None:
-            raise ValueError('Unrecognized URL: {}.'.format(url))
-        return tag.group(1)
+        if 'repository' in issue:
+            repo = issue['repository']
+            if 'full_name' in repo:
+                return repo['full_name']
+        raise ValueError('Issue has no repository url' + str(issue))
 
     def _comments(self, tag, number):
         user, repo = tag.split('/')
